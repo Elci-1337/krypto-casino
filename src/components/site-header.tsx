@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { WalletButton } from "@/components/wallet-button";
 
 export function SiteHeader() {
   return (
@@ -42,18 +43,7 @@ export function SiteHeader() {
           </a>
         </nav>
 
-        <button
-          type="button"
-          data-wallet-connect
-          aria-label="Solana Wallet verbinden (Phantom)"
-          className="inline-flex h-9 items-center justify-center gap-2 border border-[var(--accent)] bg-[var(--accent)] px-4 text-sm font-bold uppercase tracking-wider text-black transition-colors hover:bg-[var(--accent-hover)]"
-        >
-          <span
-            aria-hidden="true"
-            className="inline-block h-2 w-2 rounded-full bg-black"
-          />
-          Connect Wallet
-        </button>
+        <WalletButton />
       </div>
     </header>
   );

@@ -77,3 +77,50 @@ html {
     animation: none !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Solana wallet-adapter UI overrides — map to our brand palette.
+ * ------------------------------------------------------------------------ */
+.wallet-button-slot .wallet-adapter-button-trigger,
+.wallet-button-slot .wallet-adapter-button {
+  background: var(--accent) !important;
+  color: #000 !important;
+  height: 36px;
+  padding: 0 1rem;
+  border-radius: 0;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.8125rem;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--accent);
+  transition: background-color 120ms ease;
+}
+
+.wallet-button-slot .wallet-adapter-button-trigger:not([disabled]):hover,
+.wallet-button-slot .wallet-adapter-button:not([disabled]):hover {
+  background: var(--accent-hover) !important;
+}
+
+.wallet-adapter-modal-wrapper {
+  background: #0a0a0a !important;
+  border: 1px solid var(--border);
+  border-radius: 0 !important;
+}
+
+.wallet-adapter-modal-title {
+  color: var(--foreground) !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button {
+  background: transparent !important;
+  color: var(--foreground) !important;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button:hover {
+  background: var(--muted) !important;
+  color: var(--accent) !important;
+}

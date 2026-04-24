@@ -6,24 +6,30 @@
 
 const encoder = new TextEncoder();
 
+/**
+ * Encode a string into a Uint8Array backed by a real ArrayBuffer. At runtime
+ * TextEncoder always returns an ArrayBuffer-backed view, but TS 5.7+ lib
+ * types widen to ArrayBufferLike (which includes SharedArrayBuffer) and that
+ * is not assignable to Web Crypto's BufferSource — hence the narrow cast.
+ */
+function encode(text: string): Uint8Array<ArrayBuffer> {
+  return encoder.encode(text) as Uint8Array<ArrayBuffer>;
+}
+
 async function hmacSha256Hex(key: string, message: string): Promise<string> {
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(key),
+    encode(key),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    cryptoKey,
-    encoder.encode(message),
-  );
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, encode(message));
   return bytesToHex(new Uint8Array(signature));
 }
 
 async function sha256Hex(message: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(message));
+  const digest = await crypto.subtle.digest("SHA-256", encode(message));
   return bytesToHex(new Uint8Array(digest));
 }
 
