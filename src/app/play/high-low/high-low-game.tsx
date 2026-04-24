@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState, useTransition } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 
 import { CardFace } from "@/components/card-face";
+import { useBalance } from "@/components/providers/balance-provider";
 import type { Card } from "@/lib/shared/cards";
 import {
   type Direction,
@@ -11,6 +12,7 @@ import {
   STAKE_OPTIONS,
   winMultiplier,
 } from "@/lib/shared/high-low";
+import { formatSol } from "@/lib/shared/sol";
 
 import {
   resolveHighLowRound,
@@ -29,7 +31,10 @@ type HistoryEntry = {
 };
 
 export function HighLowGame() {
-  const { connected } = useWallet();
+  const { connected, publicKey } = useWallet();
+  const walletAddress = publicKey?.toBase58() ?? null;
+  const { balance, refresh, setOptimistic } = useBalance();
+
   const [stake, setStake] = useState<number>(STAKE_OPTIONS[0]);
   const [round, setRound] = useState<StartedRound | null>(null);
   const [resolved, setResolved] = useState<ResolvedRoundPayload | null>(null);
@@ -48,6 +53,9 @@ export function HighLowGame() {
     [round],
   );
 
+  const notEnoughFunds =
+    connected && balance != null && balance < stake;
+
   const handleStart = useCallback(() => {
     setError(null);
     setResolved(null);
@@ -64,22 +72,42 @@ export function HighLowGame() {
   const handleBet = useCallback(
     (direction: Direction) => {
       if (!round) return;
+      if (!walletAddress) {
+        setError("Bitte verbinde zuerst deine Wallet.");
+        return;
+      }
+      if (balance != null && balance < stake) {
+        setError(
+          `Guthaben reicht nicht: ${formatSol(balance)} SOL verfügbar, ${formatSol(stake, 2)} SOL benötigt.`,
+        );
+        return;
+      }
       setError(null);
+
+      const prevBalance = balance ?? 0;
+      // Optimistically debit; the server is the source of truth and
+      // `refresh()` below reconciles after settlement.
+      if (balance != null) setOptimistic(prevBalance - stake);
+
       startTransition(async () => {
         const res = await resolveHighLowRound({
-          roundId: round.roundId,
+          walletAddress,
+          roundToken: round.roundToken,
           direction,
           stake,
         });
         if (!res.ok) {
+          // Roll back the optimistic debit.
+          if (balance != null) setOptimistic(prevBalance);
           setError(res.error);
           return;
         }
         setResolved(res.round);
+        setOptimistic(res.round.balance);
         setHistory((prev) =>
           [
             {
-              id: res.round.roundId,
+              id: res.round.gameId,
               outcome: res.round.outcome,
               payout: res.round.payout,
               stake: res.round.stake,
@@ -88,9 +116,11 @@ export function HighLowGame() {
             ...prev,
           ].slice(0, 5),
         );
+        // Double-check against DB to catch any drift.
+        void refresh();
       });
     },
-    [round, stake],
+    [round, stake, walletAddress, balance, refresh, setOptimistic],
   );
 
   const handleReset = useCallback(() => {
@@ -127,6 +157,7 @@ export function HighLowGame() {
           phase={phase}
           isPending={isPending}
           connected={connected}
+          notEnoughFunds={notEnoughFunds}
           higherMultiplier={higherMultiplier}
           lowerMultiplier={lowerMultiplier}
           blocked={round?.blocked ?? null}
@@ -201,6 +232,7 @@ function ActionRow({
   phase,
   isPending,
   connected,
+  notEnoughFunds,
   higherMultiplier,
   lowerMultiplier,
   blocked,
@@ -211,6 +243,7 @@ function ActionRow({
   phase: Phase;
   isPending: boolean;
   connected: boolean;
+  notEnoughFunds: boolean;
   higherMultiplier: number;
   lowerMultiplier: number;
   blocked: Direction | null;
@@ -239,24 +272,38 @@ function ActionRow({
   }
 
   if (phase === "placing") {
+    const betDisabled = isPending || !connected || notEnoughFunds;
     return (
-      <div className="grid gap-3 sm:grid-cols-2">
-        <BetButton
-          direction="higher"
-          multiplier={higherMultiplier}
-          disabled={
-            blocked === "higher" || higherMultiplier === 0 || isPending
-          }
-          pending={isPending}
-          onClick={() => onBet("higher")}
-        />
-        <BetButton
-          direction="lower"
-          multiplier={lowerMultiplier}
-          disabled={blocked === "lower" || lowerMultiplier === 0 || isPending}
-          pending={isPending}
-          onClick={() => onBet("lower")}
-        />
+      <div className="flex flex-col gap-2">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <BetButton
+            direction="higher"
+            multiplier={higherMultiplier}
+            disabled={
+              betDisabled || blocked === "higher" || higherMultiplier === 0
+            }
+            pending={isPending}
+            onClick={() => onBet("higher")}
+          />
+          <BetButton
+            direction="lower"
+            multiplier={lowerMultiplier}
+            disabled={
+              betDisabled || blocked === "lower" || lowerMultiplier === 0
+            }
+            pending={isPending}
+            onClick={() => onBet("lower")}
+          />
+        </div>
+        {!connected ? (
+          <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[var(--accent)]">
+            Wallet verbinden, um zu wetten.
+          </p>
+        ) : notEnoughFunds ? (
+          <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[var(--accent)]">
+            Guthaben reicht nicht — bitte Einzahlen wählen.
+          </p>
+        ) : null}
       </div>
     );
   }

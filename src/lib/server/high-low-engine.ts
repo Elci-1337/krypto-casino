@@ -1,34 +1,7 @@
-/**
- * Server-only High-Low engine. Handles round lifecycle, provably-fair card
- * derivation, and settlement math. Never import from client components.
- *
- * Round lifecycle
- * ---------------
- *   startRound()
- *     1. Generate a fresh random `serverSeed` (32 bytes).
- *     2. Publish `serverSeedHash = SHA256(serverSeed)` to the client — this
- *        is the commitment: the server cannot change its mind afterwards.
- *     3. Derive the first card deterministically from (serverSeed, clientSeed,
- *        nonce=0). Stash the round in the in-memory store.
- *     4. Return { roundId, serverSeedHash, clientSeed, current, nonce }.
- *
- *   resolveRound({ roundId, direction, stake })
- *     1. Look up the round; ensure it is still pending.
- *     2. Derive the second card from (serverSeed, clientSeed, nonce=1), skipping
- *        the index of the first card (draw without replacement).
- *     3. Settle the bet, mark the round revealed, and return the full result
- *        including the now-public serverSeed so the client can verify.
- *
- * TODO(supabase): persist rounds in the `games` table instead of this Map.
- *   * On start: insert row with status='pending', serverSeed, clientSeed,
- *     nonce, wager=0 (pre-bet round).
- *   * On resolve: update with payout, result jsonb, status='settled',
- *     settled_at=now(), under service-role key so RLS is bypassed.
- *   * Also debit / credit the player's profiles.balance within the same
- *     transaction (RLS prevents the client from touching balance directly).
- */
+import "server-only";
 
 import { randomBytes } from "node:crypto";
+import { PublicKey } from "@solana/web3.js";
 
 import {
   commitServerSeed,
@@ -42,32 +15,36 @@ import {
   STAKE_OPTIONS,
   winMultiplier,
 } from "@/lib/shared/high-low";
+import { supabaseAdmin } from "@/lib/server/supabase-admin";
+import { signRoundToken, verifyRoundToken } from "@/lib/server/round-token";
 
-type StoredRound = {
-  roundId: string;
-  serverSeed: string;
-  serverSeedHash: string;
-  clientSeed: string;
-  current: Card;
-  currentIndex: number;
-  createdAt: number;
-  status: "pending" | "settled";
-};
-
-const ROUND_TTL_MS = 5 * 60 * 1000;
-
-// Scaffold-only: single-process in-memory store. Replace with Supabase writes.
-const rounds = new Map<string, StoredRound>();
-
-function gc() {
-  const now = Date.now();
-  for (const [id, r] of rounds) {
-    if (now - r.createdAt > ROUND_TTL_MS) rounds.delete(id);
-  }
-}
+/**
+ * High-Low engine. Orchestrates three pieces:
+ *
+ *   1. Provably-fair card derivation (pure, in lib/shared/provably-fair).
+ *   2. Stateless round tokens (HMAC-signed, in lib/server/round-token).
+ *      Lets us skip a pre-bet DB write while still preventing the client
+ *      from tampering with the committed seeds.
+ *   3. Supabase RPCs (ensure_profile, start_game, safe_payout). All balance
+ *      mutations happen inside Postgres transactions with row-level locks,
+ *      so concurrent play cannot double-spend the same balance.
+ *
+ * Wallet authentication: TODO(siws) — replace the plain walletAddress input
+ * with a Sign-In-With-Solana proof before going to production. Without it, a
+ * malicious client can debit a wallet it does not own.
+ */
 
 function randomHex(bytes = 32): string {
   return randomBytes(bytes).toString("hex");
+}
+
+function assertValidPubkey(address: string): string {
+  try {
+    // Throws on bad base58.
+    return new PublicKey(address).toBase58();
+  } catch {
+    throw new Error("Invalid Solana wallet address");
+  }
 }
 
 async function drawCardIndex(
@@ -77,17 +54,15 @@ async function drawCardIndex(
   modulus: number,
 ): Promise<number> {
   const f = await floatFromRound({ serverSeed, clientSeed, nonce });
-  // `f` is in [0, 1). Multiply by modulus then floor -> uniform index.
   return Math.min(modulus - 1, Math.floor(f * modulus));
 }
 
 export type StartedRound = {
-  roundId: string;
+  roundToken: string;
   serverSeedHash: string;
   clientSeed: string;
   nonce: number;
   current: Card;
-  /** Blocked direction (if any) because there are no favorable cards left. */
   blocked: Direction | null;
   stakeOptions: readonly number[];
 };
@@ -95,11 +70,9 @@ export type StartedRound = {
 export async function startRound(opts?: {
   clientSeed?: string;
 }): Promise<StartedRound> {
-  gc();
   const serverSeed = randomHex(32);
   const serverSeedHash = await commitServerSeed(serverSeed);
   const clientSeed = opts?.clientSeed?.trim() || randomHex(8);
-  const roundId = randomHex(16);
 
   const currentIndex = await drawCardIndex(
     serverSeed,
@@ -109,25 +82,19 @@ export async function startRound(opts?: {
   );
   const current = cardFromIndex(currentIndex);
 
-  rounds.set(roundId, {
-    roundId,
+  const roundToken = signRoundToken({
     serverSeed,
     serverSeedHash,
     clientSeed,
-    current,
     currentIndex,
-    createdAt: Date.now(),
-    status: "pending",
   });
 
-  // If the drawn card makes one direction impossible (A for "higher",
-  // 2 for "lower"), surface it so the UI can disable the button.
   let blocked: Direction | null = null;
   if (winMultiplier(current, "higher") === 0) blocked = "higher";
   else if (winMultiplier(current, "lower") === 0) blocked = "lower";
 
   return {
-    roundId,
+    roundToken,
     serverSeedHash,
     clientSeed,
     nonce: 0,
@@ -138,61 +105,116 @@ export async function startRound(opts?: {
 }
 
 export type ResolvedRoundPayload = ResolvedRound & {
-  roundId: string;
+  gameId: string;
   stake: number;
   serverSeed: string;
   serverSeedHash: string;
   clientSeed: string;
   nonce: number;
+  balance: number;
 };
 
 export async function resolveRoundById(params: {
-  roundId: string;
+  walletAddress: string;
+  roundToken: string;
   direction: Direction;
   stake: number;
 }): Promise<ResolvedRoundPayload> {
-  const { roundId, direction, stake } = params;
+  const { roundToken, direction, stake } = params;
+  const walletAddress = assertValidPubkey(params.walletAddress);
 
-  if (!STAKE_OPTIONS.includes(stake)) {
-    throw new Error("Invalid stake");
-  }
+  if (!STAKE_OPTIONS.includes(stake)) throw new Error("Invalid stake");
   if (direction !== "higher" && direction !== "lower") {
     throw new Error("Invalid direction");
   }
 
-  const round = rounds.get(roundId);
-  if (!round) throw new Error("Round not found or expired");
-  if (round.status !== "pending") throw new Error("Round already settled");
+  // 1. Verify the signed round: server seeds and current-card index are
+  // bound by HMAC, so the client cannot swap them.
+  const round = verifyRoundToken(roundToken);
+  const current = cardFromIndex(round.currentIndex);
 
-  // Draw next card from the remaining 51 (skip currentIndex).
+  const supa = supabaseAdmin();
+
+  // 2. Ensure the profile exists (creates a stub on first interaction).
+  const { data: userId, error: ensureErr } = await supa.rpc("ensure_profile", {
+    p_wallet: walletAddress,
+  });
+  if (ensureErr || !userId) {
+    throw new Error(ensureErr?.message ?? "Failed to ensure profile");
+  }
+
+  // 3. DEBIT BEFORE PLAY — atomic inside Postgres: the profile row is locked
+  // FOR UPDATE, balance is checked, wager is deducted and a pending game row
+  // is inserted. If the balance is short, Postgres raises and no state
+  // changes.
+  const { data: gameId, error: startErr } = await supa.rpc("start_game", {
+    p_user_id: userId as string,
+    p_game_type: "high-low",
+    p_wager: stake,
+    p_server_seed: round.serverSeed,
+    p_client_seed: round.clientSeed,
+    p_nonce: 1,
+  });
+  if (startErr || !gameId) {
+    const msg = startErr?.message ?? "Failed to start game";
+    if (/insufficient balance/i.test(msg)) {
+      throw new Error("Guthaben reicht nicht für diesen Einsatz");
+    }
+    throw new Error(msg);
+  }
+
+  // 4. Draw the decisive card from the remaining 51 (skip currentIndex).
   const rawIndex = await drawCardIndex(
     round.serverSeed,
     round.clientSeed,
     1,
     DECK_SIZE - 1,
   );
-  const nextIndex =
-    rawIndex >= round.currentIndex ? rawIndex + 1 : rawIndex;
+  const nextIndex = rawIndex >= round.currentIndex ? rawIndex + 1 : rawIndex;
   const next = cardFromIndex(nextIndex);
 
-  const resolved = settleRound(round.current, next, direction, stake);
+  const resolved = settleRound(current, next, direction, stake);
 
-  round.status = "settled";
-  rounds.set(roundId, round);
-
-  // TODO(supabase): at this point, inside a single transaction:
-  //   1) update profiles.balance: -stake + resolved.payout (service-role).
-  //   2) upsert into games with status='settled', server_seed (now public),
-  //      client_seed, nonce=1, result = { current, next, direction, outcome }.
-  //   3) insert a fairness audit entry keyed by serverSeedHash.
+  // 5. Settle atomically: lock the game row, flip status to 'settled', write
+  // the result JSON, credit the payout. safe_payout is idempotent on retries.
+  const { data: newBalance, error: payoutErr } = await supa.rpc("safe_payout", {
+    p_game_id: gameId as string,
+    p_payout: resolved.payout,
+    p_result: {
+      current,
+      next,
+      direction: resolved.direction,
+      outcome: resolved.outcome,
+      multiplier: resolved.multiplier,
+      serverSeedHash: round.serverSeedHash,
+    },
+  });
+  if (payoutErr || newBalance == null) {
+    throw new Error(payoutErr?.message ?? "Failed to settle game");
+  }
 
   return {
-    roundId,
+    gameId: gameId as string,
     stake,
     serverSeed: round.serverSeed,
     serverSeedHash: round.serverSeedHash,
     clientSeed: round.clientSeed,
     nonce: 1,
+    balance: Number(newBalance),
     ...resolved,
   };
+}
+
+export async function getBalance(walletAddress: string): Promise<number> {
+  const address = assertValidPubkey(walletAddress);
+  const supa = supabaseAdmin();
+
+  const { data, error } = await supa
+    .from("profiles")
+    .select("balance")
+    .eq("wallet_address", address)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return 0;
+  return Number(data.balance ?? 0);
 }

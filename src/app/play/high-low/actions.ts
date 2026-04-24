@@ -17,12 +17,9 @@ export type ResolveResult =
   | { ok: false; error: string };
 
 /**
- * Begin a new High-Low round. The server commits to a freshly generated
- * `serverSeed` and returns its SHA-256 hash; the actual seed is only
- * revealed after the bet is resolved.
- *
- * NOTE: wallet authentication and on-chain stake escrow will be wired in
- * alongside the Supabase write path. For now the action is state-free.
+ * Begin a new round. Stateless on the server — the returned token carries the
+ * committed server seed and the pre-drawn first card, signed with HMAC so the
+ * client cannot tamper with it.
  */
 export async function startHighLowRound(input?: {
   clientSeed?: string;
@@ -39,12 +36,20 @@ export async function startHighLowRound(input?: {
 }
 
 /**
- * Resolve a pending round. Returns the revealed server seed so the client
- * can independently verify that the drawn card is a function of the public
- * inputs `(serverSeed, clientSeed, nonce)`.
+ * Settle a round. Flow:
+ *   1. Verify round token signature + expiry.
+ *   2. Supabase `start_game` RPC: lock profile, debit wager, insert pending
+ *      game. Fails with a clear error if balance is insufficient.
+ *   3. Draw the decisive card from the remaining 51.
+ *   4. Supabase `safe_payout` RPC: mark settled and credit the payout,
+ *      atomically.
+ *
+ * TODO(siws): replace `walletAddress` with a verified Sign-In-With-Solana
+ * proof before production.
  */
 export async function resolveHighLowRound(input: {
-  roundId: string;
+  walletAddress: string;
+  roundToken: string;
   direction: Direction;
   stake: number;
 }): Promise<ResolveResult> {

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { WalletButton } from "@/components/wallet-button";
+import { WalletBalance } from "@/components/wallet-balance";
+import { DepositDialog } from "@/components/deposit-dialog";
 
 export function SiteHeader() {
   return (
@@ -43,7 +45,11 @@ export function SiteHeader() {
           </a>
         </nav>
 
-        <WalletButton />
+        <div className="flex items-center gap-2">
+          <WalletBalance />
+          <DepositDialog />
+          <WalletButton />
+        </div>
       </div>
     </header>
   );
