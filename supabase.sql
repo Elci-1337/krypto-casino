@@ -81,11 +81,36 @@ create table if not exists public.deposits (
 create index if not exists deposits_user_id_idx on public.deposits (user_id);
 
 -- -----------------------------------------------------------------------------
+-- withdrawals
+-- -----------------------------------------------------------------------------
+-- Two-step lifecycle:
+--   1. request_withdrawal: debit balance + insert pending row (atomic).
+--   2. On-chain transfer runs outside of Postgres.
+--   3. mark_withdrawal_completed on success, mark_withdrawal_failed on error
+--      (the failure handler refunds the balance, also atomic).
+create table if not exists public.withdrawals (
+  id                  uuid primary key default gen_random_uuid(),
+  user_id             uuid not null references public.profiles(id) on delete cascade,
+  amount              numeric(20, 9) not null check (amount > 0),
+  destination_address text not null,
+  signature           text unique,
+  status              text not null default 'pending'
+                        check (status in ('pending', 'completed', 'failed')),
+  error               text,
+  created_at          timestamptz not null default now(),
+  completed_at        timestamptz
+);
+
+create index if not exists withdrawals_user_id_idx on public.withdrawals (user_id);
+create index if not exists withdrawals_status_idx  on public.withdrawals (status);
+
+-- -----------------------------------------------------------------------------
 -- Row Level Security
 -- -----------------------------------------------------------------------------
-alter table public.profiles enable row level security;
-alter table public.games    enable row level security;
-alter table public.deposits enable row level security;
+alter table public.profiles    enable row level security;
+alter table public.games       enable row level security;
+alter table public.deposits    enable row level security;
+alter table public.withdrawals enable row level security;
 
 -- --- profiles policies ------------------------------------------------------
 
@@ -166,16 +191,33 @@ create policy "deposits_select_own"
 
 -- No write policies for clients — credit_deposit is the only writer.
 
+-- --- withdrawals policies ---------------------------------------------------
+
+drop policy if exists "withdrawals_select_own" on public.withdrawals;
+create policy "withdrawals_select_own"
+  on public.withdrawals
+  for select
+  using (
+    user_id in (
+      select p.id from public.profiles p where p.auth_user_id = auth.uid()
+    )
+  );
+
+-- No write policies for clients — request_withdrawal / mark_withdrawal_* own
+-- the write path, and they only run under service_role.
+
 -- -----------------------------------------------------------------------------
 -- Table-level privileges. Revoke default grants, hand back the minimum.
 -- -----------------------------------------------------------------------------
-revoke all on public.profiles from anon, authenticated;
-revoke all on public.games    from anon, authenticated;
-revoke all on public.deposits from anon, authenticated;
+revoke all on public.profiles    from anon, authenticated;
+revoke all on public.games       from anon, authenticated;
+revoke all on public.deposits    from anon, authenticated;
+revoke all on public.withdrawals from anon, authenticated;
 
-grant select, insert, update on public.profiles to authenticated;
-grant select                   on public.games    to authenticated;
-grant select                   on public.deposits to authenticated;
+grant select, insert, update on public.profiles    to authenticated;
+grant select                   on public.games       to authenticated;
+grant select                   on public.deposits    to authenticated;
+grant select                   on public.withdrawals to authenticated;
 
 -- =============================================================================
 -- RPCs (Stored Procedures)
@@ -385,14 +427,157 @@ end;
 $$;
 
 -- -----------------------------------------------------------------------------
+-- request_withdrawal(user, amount, destination)
+--   Atomically: lock profile, verify balance >= amount, debit balance, insert
+--   pending withdrawal. Returns the new withdrawal id. The on-chain transfer
+--   is kicked off by the Node server AFTER this returns.
+-- -----------------------------------------------------------------------------
+create or replace function public.request_withdrawal(
+  p_user_id     uuid,
+  p_amount      numeric,
+  p_destination text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_balance      numeric;
+  v_withdraw_id  uuid;
+begin
+  if p_amount <= 0 then
+    raise exception 'withdrawal amount must be positive';
+  end if;
+  if coalesce(length(p_destination), 0) = 0 then
+    raise exception 'destination address required';
+  end if;
+
+  select balance into v_balance
+    from public.profiles
+    where id = p_user_id
+    for update;
+
+  if v_balance is null then
+    raise exception 'profile % not found', p_user_id;
+  end if;
+
+  if v_balance < p_amount then
+    raise exception 'insufficient balance: have %, need %', v_balance, p_amount
+      using errcode = 'P0001';
+  end if;
+
+  update public.profiles
+     set balance = balance - p_amount
+   where id = p_user_id;
+
+  insert into public.withdrawals (user_id, amount, destination_address, status)
+  values (p_user_id, p_amount, p_destination, 'pending')
+  returning id into v_withdraw_id;
+
+  return v_withdraw_id;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- mark_withdrawal_completed(id, signature)
+--   Flip status pending -> completed and record the on-chain signature. Uses
+--   the signature uniqueness + status lock to be safe against retries.
+-- -----------------------------------------------------------------------------
+create or replace function public.mark_withdrawal_completed(
+  p_withdrawal_id uuid,
+  p_signature     text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status text;
+begin
+  select status into v_status
+    from public.withdrawals
+    where id = p_withdrawal_id
+    for update;
+
+  if v_status is null then
+    raise exception 'withdrawal % not found', p_withdrawal_id;
+  end if;
+  if v_status = 'completed' then
+    return; -- idempotent
+  end if;
+  if v_status <> 'pending' then
+    raise exception 'withdrawal % is in terminal state %', p_withdrawal_id, v_status;
+  end if;
+
+  update public.withdrawals
+     set status       = 'completed',
+         signature    = p_signature,
+         completed_at = now(),
+         error        = null
+   where id = p_withdrawal_id;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- mark_withdrawal_failed(id, error)
+--   Flip status pending -> failed AND refund the user's balance, atomically.
+-- -----------------------------------------------------------------------------
+create or replace function public.mark_withdrawal_failed(
+  p_withdrawal_id uuid,
+  p_error         text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status  text;
+  v_user_id uuid;
+  v_amount  numeric;
+begin
+  select user_id, amount, status into v_user_id, v_amount, v_status
+    from public.withdrawals
+    where id = p_withdrawal_id
+    for update;
+
+  if v_user_id is null then
+    raise exception 'withdrawal % not found', p_withdrawal_id;
+  end if;
+  if v_status <> 'pending' then
+    return; -- only pending withdrawals can be failed + refunded
+  end if;
+
+  update public.withdrawals
+     set status       = 'failed',
+         error        = p_error,
+         completed_at = now()
+   where id = p_withdrawal_id;
+
+  -- Refund.
+  update public.profiles
+     set balance = balance + v_amount
+   where id = v_user_id;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
 -- Function execute privileges
 -- -----------------------------------------------------------------------------
-revoke all on function public.ensure_profile(text)                            from public, anon, authenticated;
-revoke all on function public.start_game(uuid, text, numeric, text, text, bigint) from public, anon, authenticated;
-revoke all on function public.safe_payout(uuid, numeric, jsonb)               from public, anon, authenticated;
-revoke all on function public.credit_deposit(text, text, numeric, bigint)     from public, anon, authenticated;
+revoke all on function public.ensure_profile(text)                                   from public, anon, authenticated;
+revoke all on function public.start_game(uuid, text, numeric, text, text, bigint)    from public, anon, authenticated;
+revoke all on function public.safe_payout(uuid, numeric, jsonb)                      from public, anon, authenticated;
+revoke all on function public.credit_deposit(text, text, numeric, bigint)            from public, anon, authenticated;
+revoke all on function public.request_withdrawal(uuid, numeric, text)                from public, anon, authenticated;
+revoke all on function public.mark_withdrawal_completed(uuid, text)                  from public, anon, authenticated;
+revoke all on function public.mark_withdrawal_failed(uuid, text)                     from public, anon, authenticated;
 
-grant execute on function public.ensure_profile(text)                            to service_role;
-grant execute on function public.start_game(uuid, text, numeric, text, text, bigint) to service_role;
-grant execute on function public.safe_payout(uuid, numeric, jsonb)               to service_role;
-grant execute on function public.credit_deposit(text, text, numeric, bigint)     to service_role;
+grant execute on function public.ensure_profile(text)                                   to service_role;
+grant execute on function public.start_game(uuid, text, numeric, text, text, bigint)    to service_role;
+grant execute on function public.safe_payout(uuid, numeric, jsonb)                      to service_role;
+grant execute on function public.credit_deposit(text, text, numeric, bigint)            to service_role;
+grant execute on function public.request_withdrawal(uuid, numeric, text)                to service_role;
+grant execute on function public.mark_withdrawal_completed(uuid, text)                  to service_role;
+grant execute on function public.mark_withdrawal_failed(uuid, text)                     to service_role;

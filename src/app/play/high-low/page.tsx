@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { HighLowGame } from "./high-low-game";
+import { TransactionHistory } from "@/components/transaction-history";
 
 export const metadata: Metadata = {
   title: "Higher or Lower – Provably Fair Kartenspiel mit Solana",
@@ -38,6 +39,8 @@ export default function HighLowPage() {
       </header>
 
       <HighLowGame />
+
+      <TransactionHistory />
     </section>
   );
 }

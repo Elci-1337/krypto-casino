@@ -4,6 +4,7 @@ import "./globals.css";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { WalletContextProvider } from "@/components/providers/wallet-provider";
+import { SessionProvider } from "@/components/providers/session-provider";
 import { BalanceProvider } from "@/components/providers/balance-provider";
 
 const geistSans = Geist({
@@ -80,13 +81,15 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground font-sans">
         <WalletContextProvider>
-          <BalanceProvider>
-            <SiteHeader />
-            <main id="main" className="flex-1 w-full">
-              {children}
-            </main>
-            <SiteFooter />
-          </BalanceProvider>
+          <SessionProvider>
+            <BalanceProvider>
+              <SiteHeader />
+              <main id="main" className="flex-1 w-full">
+                {children}
+              </main>
+              <SiteFooter />
+            </BalanceProvider>
+          </SessionProvider>
         </WalletContextProvider>
       </body>
     </html>

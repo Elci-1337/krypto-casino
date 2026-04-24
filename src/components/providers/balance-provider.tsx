@@ -9,7 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
+
+import { useSession } from "@/components/providers/session-provider";
 
 type BalanceState = {
   balance: number | null;
@@ -22,11 +23,8 @@ type BalanceState = {
 
 const BalanceContext = createContext<BalanceState | null>(null);
 
-async function fetchBalance(address: string): Promise<number> {
-  const res = await fetch(
-    `/api/wallet/balance?address=${encodeURIComponent(address)}`,
-    { cache: "no-store" },
-  );
+async function fetchBalance(): Promise<number> {
+  const res = await fetch(`/api/wallet/balance`, { cache: "no-store" });
   const json = (await res.json()) as
     | { balance: number }
     | { error: string };
@@ -37,20 +35,17 @@ async function fetchBalance(address: string): Promise<number> {
 }
 
 export function BalanceProvider({ children }: { children: ReactNode }) {
-  const { publicKey } = useWallet();
-  const address = publicKey?.toBase58() ?? null;
+  const { status, address } = useSession();
 
   const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load balance whenever the connected wallet changes. All setState calls
-  // live inside the async callback to satisfy react-hooks/set-state-in-effect.
   useEffect(() => {
     let cancelled = false;
 
     const run = async () => {
-      if (!address) {
+      if (status !== "authenticated") {
         if (!cancelled) {
           setBalance(null);
           setError(null);
@@ -59,7 +54,7 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const b = await fetchBalance(address);
+        const b = await fetchBalance();
         if (cancelled) return;
         setBalance(b);
         setError(null);
@@ -76,16 +71,16 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [address]);
+  }, [status, address]);
 
   const refresh = useCallback(async () => {
-    if (!address) {
+    if (status !== "authenticated") {
       setBalance(null);
       return;
     }
     setLoading(true);
     try {
-      const b = await fetchBalance(address);
+      const b = await fetchBalance();
       setBalance(b);
       setError(null);
     } catch (err) {
@@ -93,7 +88,7 @@ export function BalanceProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [address]);
+  }, [status]);
 
   const setOptimistic = useCallback((v: number) => setBalance(v), []);
 

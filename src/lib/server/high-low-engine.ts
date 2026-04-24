@@ -115,12 +115,15 @@ export type ResolvedRoundPayload = ResolvedRound & {
 };
 
 export async function resolveRoundById(params: {
+  /** Server-authoritative wallet address (from the session cookie). */
   walletAddress: string;
   roundToken: string;
   direction: Direction;
   stake: number;
 }): Promise<ResolvedRoundPayload> {
   const { roundToken, direction, stake } = params;
+  // The caller already pulled this from the session. We still validate it
+  // to catch upstream bugs and normalize the base58 representation.
   const walletAddress = assertValidPubkey(params.walletAddress);
 
   if (!STAKE_OPTIONS.includes(stake)) throw new Error("Invalid stake");

@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useMemo, useState, useTransition } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 
 import { CardFace } from "@/components/card-face";
 import { useBalance } from "@/components/providers/balance-provider";
+import { useSession } from "@/components/providers/session-provider";
 import type { Card } from "@/lib/shared/cards";
 import {
   type Direction,
@@ -31,8 +31,8 @@ type HistoryEntry = {
 };
 
 export function HighLowGame() {
-  const { connected, publicKey } = useWallet();
-  const walletAddress = publicKey?.toBase58() ?? null;
+  const { status: sessionStatus } = useSession();
+  const authenticated = sessionStatus === "authenticated";
   const { balance, refresh, setOptimistic } = useBalance();
 
   const [stake, setStake] = useState<number>(STAKE_OPTIONS[0]);
@@ -54,7 +54,7 @@ export function HighLowGame() {
   );
 
   const notEnoughFunds =
-    connected && balance != null && balance < stake;
+    authenticated && balance != null && balance < stake;
 
   const handleStart = useCallback(() => {
     setError(null);
@@ -72,8 +72,8 @@ export function HighLowGame() {
   const handleBet = useCallback(
     (direction: Direction) => {
       if (!round) return;
-      if (!walletAddress) {
-        setError("Bitte verbinde zuerst deine Wallet.");
+      if (!authenticated) {
+        setError("Bitte zuerst mit deiner Wallet anmelden.");
         return;
       }
       if (balance != null && balance < stake) {
@@ -91,7 +91,6 @@ export function HighLowGame() {
 
       startTransition(async () => {
         const res = await resolveHighLowRound({
-          walletAddress,
           roundToken: round.roundToken,
           direction,
           stake,
@@ -120,7 +119,7 @@ export function HighLowGame() {
         void refresh();
       });
     },
-    [round, stake, walletAddress, balance, refresh, setOptimistic],
+    [round, stake, authenticated, balance, refresh, setOptimistic],
   );
 
   const handleReset = useCallback(() => {
@@ -156,7 +155,7 @@ export function HighLowGame() {
         <ActionRow
           phase={phase}
           isPending={isPending}
-          connected={connected}
+          authenticated={authenticated}
           notEnoughFunds={notEnoughFunds}
           higherMultiplier={higherMultiplier}
           lowerMultiplier={lowerMultiplier}
@@ -231,7 +230,7 @@ function StakePicker({
 function ActionRow({
   phase,
   isPending,
-  connected,
+  authenticated,
   notEnoughFunds,
   higherMultiplier,
   lowerMultiplier,
@@ -242,7 +241,7 @@ function ActionRow({
 }: {
   phase: Phase;
   isPending: boolean;
-  connected: boolean;
+  authenticated: boolean;
   notEnoughFunds: boolean;
   higherMultiplier: number;
   lowerMultiplier: number;
@@ -257,14 +256,15 @@ function ActionRow({
         <button
           type="button"
           onClick={onStart}
-          disabled={isPending}
+          disabled={isPending || !authenticated}
           className="inline-flex h-12 items-center justify-center border border-[var(--accent)] bg-[var(--accent)] px-6 font-mono text-sm font-bold uppercase tracking-wider text-black transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-60"
         >
           {isPending ? "Mische Deck …" : "Neue Runde starten"}
         </button>
-        {!connected ? (
+        {!authenticated ? (
           <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-foreground/50">
-            Tipp: verbinde deine Wallet, um echte Einsätze zu spielen.
+            Verbinde deine Wallet und klicke oben auf &bdquo;Anmelden&ldquo;,
+            um zu spielen.
           </p>
         ) : null}
       </div>
@@ -272,7 +272,7 @@ function ActionRow({
   }
 
   if (phase === "placing") {
-    const betDisabled = isPending || !connected || notEnoughFunds;
+    const betDisabled = isPending || !authenticated || notEnoughFunds;
     return (
       <div className="flex flex-col gap-2">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -295,9 +295,9 @@ function ActionRow({
             onClick={() => onBet("lower")}
           />
         </div>
-        {!connected ? (
+        {!authenticated ? (
           <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[var(--accent)]">
-            Wallet verbinden, um zu wetten.
+            Bitte anmelden, um zu wetten.
           </p>
         ) : notEnoughFunds ? (
           <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[var(--accent)]">

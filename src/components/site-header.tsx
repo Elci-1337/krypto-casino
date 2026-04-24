@@ -2,6 +2,8 @@ import Link from "next/link";
 import { WalletButton } from "@/components/wallet-button";
 import { WalletBalance } from "@/components/wallet-balance";
 import { DepositDialog } from "@/components/deposit-dialog";
+import { WithdrawDialog } from "@/components/withdraw-dialog";
+import { AuthButton } from "@/components/auth-button";
 
 export function SiteHeader() {
   return (
@@ -48,6 +50,8 @@ export function SiteHeader() {
         <div className="flex items-center gap-2">
           <WalletBalance />
           <DepositDialog />
+          <WithdrawDialog />
+          <AuthButton />
           <WalletButton />
         </div>
       </div>

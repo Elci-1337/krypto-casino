@@ -1,28 +1,27 @@
 import { NextResponse } from "next/server";
 
 import { getBalance } from "@/lib/server/high-low-engine";
+import { getSession } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const address = url.searchParams.get("address")?.trim() ?? "";
-
-  if (!address) {
+export async function GET() {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json(
-      { error: "address query param required" },
-      { status: 400 },
+      { error: "Not authenticated" },
+      { status: 401 },
     );
   }
 
   try {
-    const balance = await getBalance(address);
-    return NextResponse.json({ address, balance });
+    const balance = await getBalance(session.wallet);
+    return NextResponse.json({ address: session.wallet, balance });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to read balance" },
-      { status: 400 },
+      { status: 500 },
     );
   }
 }

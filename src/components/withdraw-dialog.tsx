@@ -1,123 +1,110 @@
 "use client";
 
 import { useCallback, useState, type MouseEvent } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import {
-  LAMPORTS_PER_SOL,
-  PublicKey,
-  SystemProgram,
-  Transaction,
-} from "@solana/web3.js";
+import { useWallet } from "@solana/wallet-adapter-react";
 
 import { useBalance } from "@/components/providers/balance-provider";
 import { useSession } from "@/components/providers/session-provider";
 import { formatSol } from "@/lib/shared/sol";
 
-const DEFAULT_AMOUNT_SOL = 0.1;
-const HOUSE_ADDRESS = process.env.NEXT_PUBLIC_HOUSE_WALLET_ADDRESS ?? "";
+const MIN_WITHDRAW = 0.01;
 
 type Phase =
   | { kind: "idle" }
-  | { kind: "signing" }
-  | { kind: "confirming"; signature: string }
-  | { kind: "crediting"; signature: string }
-  | { kind: "done"; signature: string; credited: number }
+  | { kind: "submitting" }
+  | { kind: "done"; signature: string; amount: number }
   | { kind: "error"; message: string };
 
-export function DepositDialog() {
-  const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
-  const { status: sessionStatus } = useSession();
-  const { refresh } = useBalance();
+export function WithdrawDialog() {
+  const { publicKey } = useWallet();
+  const { status } = useSession();
+  const { balance, refresh } = useBalance();
 
   const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState<string>("0.1");
+  const [destination, setDestination] = useState<string>(
+    publicKey?.toBase58() ?? "",
+  );
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
-  const houseAddress = HOUSE_ADDRESS || null;
-  const houseError = houseAddress
-    ? null
-    : "NEXT_PUBLIC_HOUSE_WALLET_ADDRESS nicht konfiguriert";
-
   const close = useCallback(() => {
-    if (phase.kind === "signing" || phase.kind === "crediting") return;
+    if (phase.kind === "submitting") return;
     setOpen(false);
     setPhase({ kind: "idle" });
   }, [phase.kind]);
 
-  const sendDeposit = useCallback(async () => {
-    if (!publicKey || !houseAddress) return;
+  const handleOpen = useCallback(() => {
+    setDestination(publicKey?.toBase58() ?? "");
+    setOpen(true);
+  }, [publicKey]);
 
+  const submit = useCallback(async () => {
+    const parsed = Number(amount);
+    if (!Number.isFinite(parsed) || parsed < MIN_WITHDRAW) {
+      setPhase({
+        kind: "error",
+        message: `Mindestauszahlung ${MIN_WITHDRAW} SOL`,
+      });
+      return;
+    }
+    if (balance != null && parsed > balance) {
+      setPhase({
+        kind: "error",
+        message: `Nicht genug Guthaben: ${formatSol(balance)} SOL verfügbar`,
+      });
+      return;
+    }
+
+    setPhase({ kind: "submitting" });
     try {
-      setPhase({ kind: "signing" });
-
-      const tx = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: new PublicKey(houseAddress),
-          lamports: Math.round(DEFAULT_AMOUNT_SOL * LAMPORTS_PER_SOL),
-        }),
-      );
-      tx.feePayer = publicKey;
-      const { blockhash, lastValidBlockHeight } =
-        await connection.getLatestBlockhash("confirmed");
-      tx.recentBlockhash = blockhash;
-      tx.lastValidBlockHeight = lastValidBlockHeight;
-
-      const signature = await sendTransaction(tx, connection);
-      setPhase({ kind: "confirming", signature });
-
-      await connection.confirmTransaction(
-        { signature, blockhash, lastValidBlockHeight },
-        "confirmed",
-      );
-
-      setPhase({ kind: "crediting", signature });
-
-      const res = await fetch("/api/wallet/deposit", {
+      const res = await fetch("/api/wallet/withdraw", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          signature,
-          walletAddress: publicKey.toBase58(),
+          amount: parsed,
+          destination: destination.trim(),
         }),
       });
       const json = (await res.json()) as
-        | { ok: true; credited: number; balance: number }
-        | { ok?: false; error: string };
-
-      if (!res.ok || !("ok" in json) || json.ok !== true) {
+        | { ok: true; signature: string; amount: number }
+        | { error: string };
+      if (!res.ok || !("ok" in json)) {
         throw new Error(
-          ("error" in json && json.error) || "Gutschrift fehlgeschlagen",
+          ("error" in json && json.error) || "Auszahlung fehlgeschlagen",
         );
       }
-
       await refresh();
-      setPhase({ kind: "done", signature, credited: json.credited });
+      setPhase({
+        kind: "done",
+        signature: json.signature,
+        amount: json.amount,
+      });
     } catch (err) {
       setPhase({
         kind: "error",
-        message: err instanceof Error ? err.message : "Transaktion abgebrochen",
+        message:
+          err instanceof Error ? err.message : "Auszahlung fehlgeschlagen",
       });
     }
-  }, [connection, houseAddress, publicKey, refresh, sendTransaction]);
+  }, [amount, balance, destination, refresh]);
 
-  if (sessionStatus !== "authenticated") return null;
+  if (status !== "authenticated") return null;
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className="inline-flex h-9 items-center justify-center border border-[var(--border)] bg-transparent px-3 font-mono text-xs font-bold uppercase tracking-wider text-foreground transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
       >
-        Einzahlen
+        Auszahlen
       </button>
 
       {open ? (
         <div
           role="dialog"
           aria-modal="true"
-          aria-labelledby="deposit-title"
+          aria-labelledby="withdraw-title"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
           onClick={close}
         >
@@ -126,11 +113,8 @@ export function DepositDialog() {
             className="w-full max-w-md border border-[var(--border)] bg-black p-6 shadow-[0_30px_80px_-20px_rgba(255,69,0,0.5)]"
           >
             <div className="flex items-start justify-between gap-4">
-              <h2
-                id="deposit-title"
-                className="text-xl font-bold tracking-tight"
-              >
-                Einzahlen
+              <h2 id="withdraw-title" className="text-xl font-bold tracking-tight">
+                Auszahlen
               </h2>
               <button
                 type="button"
@@ -143,21 +127,49 @@ export function DepositDialog() {
             </div>
 
             <p className="mt-2 text-sm text-foreground/65">
-              Teste den Einzahlungs-Flow mit einer Transaktion über{" "}
-              <strong className="text-[var(--accent)]">
-                {formatSol(DEFAULT_AMOUNT_SOL, 2)} SOL
-              </strong>{" "}
-              an die House-Wallet. Nach der Bestätigung wird dein Guthaben
-              automatisch gutgeschrieben.
+              Zieh dein Guthaben direkt on-chain auf eine Solana-Wallet ab. Die
+              Transaktion wird vom Casino-Treasury signiert und an das von dir
+              gewählte Ziel geschickt.
             </p>
 
             <div className="mt-4 border border-[var(--border)] bg-[var(--muted)] p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/50">
-                House Wallet
+                Aktuelles Guthaben
               </p>
-              <p className="mt-1 break-all font-mono text-[11px] leading-relaxed text-foreground/85">
-                {houseError ?? houseAddress ?? "lade …"}
+              <p className="mt-1 font-mono text-lg text-foreground">
+                {balance != null ? formatSol(balance, 6) : "…"} SOL
               </p>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <label className="block">
+                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/50">
+                  Betrag (SOL)
+                </span>
+                <input
+                  type="number"
+                  min={MIN_WITHDRAW}
+                  step={0.01}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  disabled={phase.kind === "submitting"}
+                  className="mt-1 h-10 w-full border border-[var(--border)] bg-black px-3 font-mono text-sm text-foreground outline-none focus:border-[var(--accent)]"
+                />
+              </label>
+
+              <label className="block">
+                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/50">
+                  Ziel-Adresse
+                </span>
+                <input
+                  type="text"
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value)}
+                  disabled={phase.kind === "submitting"}
+                  spellCheck={false}
+                  className="mt-1 h-10 w-full border border-[var(--border)] bg-black px-3 font-mono text-xs text-foreground outline-none focus:border-[var(--accent)]"
+                />
+              </label>
             </div>
 
             <PhasePanel phase={phase} />
@@ -166,27 +178,22 @@ export function DepositDialog() {
               <button
                 type="button"
                 onClick={close}
-                disabled={
-                  phase.kind === "signing" || phase.kind === "crediting"
-                }
+                disabled={phase.kind === "submitting"}
                 className="inline-flex h-10 items-center justify-center border border-[var(--border)] bg-transparent px-4 font-mono text-xs font-bold uppercase tracking-wider text-foreground transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Schließen
               </button>
               <button
                 type="button"
-                onClick={sendDeposit}
+                onClick={() => void submit()}
                 disabled={
-                  !houseAddress ||
-                  phase.kind === "signing" ||
-                  phase.kind === "confirming" ||
-                  phase.kind === "crediting"
+                  phase.kind === "submitting" ||
+                  !destination.trim() ||
+                  !amount
                 }
                 className="inline-flex h-10 items-center justify-center border border-[var(--accent)] bg-[var(--accent)] px-5 font-mono text-xs font-bold uppercase tracking-wider text-black transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {phase.kind === "signing" || phase.kind === "confirming"
-                  ? "…"
-                  : `0.1 SOL senden`}
+                {phase.kind === "submitting" ? "…" : "Auszahlen"}
               </button>
             </div>
           </div>
@@ -198,32 +205,17 @@ export function DepositDialog() {
 
 function PhasePanel({ phase }: { phase: Phase }) {
   if (phase.kind === "idle") return null;
-
-  if (phase.kind === "signing") {
-    return (
-      <Notice tone="muted">Wallet-Dialog öffnen und Transaktion bestätigen …</Notice>
-    );
-  }
-  if (phase.kind === "confirming") {
+  if (phase.kind === "submitting") {
     return (
       <Notice tone="muted">
-        Warte auf Bestätigung der Transaktion …
-        <Sig value={phase.signature} />
-      </Notice>
-    );
-  }
-  if (phase.kind === "crediting") {
-    return (
-      <Notice tone="muted">
-        Verifiziere Transaktion und schreibe Guthaben gut …
-        <Sig value={phase.signature} />
+        Treasury signiert und sendet die Transaktion …
       </Notice>
     );
   }
   if (phase.kind === "done") {
     return (
       <Notice tone="success">
-        Gutgeschrieben: {formatSol(phase.credited, 4)} SOL
+        Ausgezahlt: {formatSol(phase.amount, 4)} SOL
         <Sig value={phase.signature} />
       </Notice>
     );

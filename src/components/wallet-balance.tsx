@@ -1,15 +1,14 @@
 "use client";
 
-import { useWallet } from "@solana/wallet-adapter-react";
-
 import { useBalance } from "@/components/providers/balance-provider";
+import { useSession } from "@/components/providers/session-provider";
 import { formatSol } from "@/lib/shared/sol";
 
 export function WalletBalance() {
-  const { connected } = useWallet();
+  const { status } = useSession();
   const { balance, loading, error } = useBalance();
 
-  if (!connected) return null;
+  if (status !== "authenticated") return null;
 
   let display: string;
   let tone = "text-foreground";

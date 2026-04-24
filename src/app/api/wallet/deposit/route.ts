@@ -2,15 +2,21 @@ import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/server/supabase-admin";
 import { verifyDepositSignature } from "@/lib/server/solana";
+import { getSession } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MIN_DEPOSIT_LAMPORTS = 1_000_000n; // 0.001 SOL
 
-type Body = { signature?: unknown; walletAddress?: unknown };
+type Body = { signature?: unknown };
 
 export async function POST(req: Request) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
   let body: Body;
   try {
     body = (await req.json()) as Body;
@@ -20,21 +26,21 @@ export async function POST(req: Request) {
 
   const signature =
     typeof body.signature === "string" ? body.signature.trim() : "";
-  const walletAddress =
-    typeof body.walletAddress === "string" ? body.walletAddress.trim() : "";
-
-  if (!signature || !walletAddress) {
+  if (!signature) {
     return NextResponse.json(
-      { error: "signature and walletAddress are required" },
+      { error: "signature is required" },
       { status: 400 },
     );
   }
 
   let verified;
   try {
+    // Bind the deposit to the session wallet: the signer of the transaction
+    // must match the authenticated wallet. Prevents a logged-in user from
+    // submitting someone else's signature to poison the state.
     verified = await verifyDepositSignature({
       signature,
-      expectedSender: walletAddress,
+      expectedSender: session.wallet,
       minLamports: MIN_DEPOSIT_LAMPORTS,
     });
   } catch (err) {
