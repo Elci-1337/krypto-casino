@@ -1,75 +1,17 @@
-import Database from "better-sqlite3";
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-let _db: Database.Database | null = null;
+let _client: SupabaseClient | null = null;
 
-function open(): Database.Database {
-  const path = resolve(process.env.DB_PATH ?? "./data/gmb.db");
-  mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  migrate(db);
-  return db;
-}
-
-export function db(): Database.Database {
-  if (!_db) _db = open();
-  return _db;
-}
-
-function migrate(d: Database.Database) {
-  d.exec(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      id TEXT PRIMARY KEY,
-      keyword TEXT NOT NULL,
-      location TEXT NOT NULL,
-      country_code TEXT NOT NULL DEFAULT 'DE',
-      language TEXT NOT NULL DEFAULT 'de',
-      max_results INTEGER NOT NULL,
-      apify_run_id TEXT,
-      apify_dataset_id TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      error TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS places (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-      place_id TEXT,
-      name TEXT,
-      category TEXT,
-      address TEXT,
-      city TEXT,
-      postal_code TEXT,
-      country_code TEXT,
-      phone TEXT,
-      email TEXT,
-      website TEXT,
-      domain TEXT,
-      rating REAL,
-      review_count INTEGER,
-      lat REAL,
-      lng REAL,
-      maps_url TEXT,
-      raw TEXT,
-      UNIQUE(job_id, place_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_places_job ON places(job_id);
-    CREATE INDEX IF NOT EXISTS idx_places_domain ON places(domain);
-
-    CREATE TABLE IF NOT EXISTS domain_checks (
-      domain TEXT PRIMARY KEY,
-      dns_status TEXT,
-      rdap_status TEXT,
-      is_available INTEGER,
-      checked_at INTEGER NOT NULL,
-      error TEXT
-    );
-  `);
+export function supa(): SupabaseClient {
+  if (_client) return _client;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url) throw new Error("SUPABASE_URL is not set");
+  if (!key) throw new Error("SUPABASE_SERVICE_KEY is not set");
+  _client = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return _client;
 }
 
 export type JobStatus =
@@ -90,8 +32,8 @@ export interface Job {
   apify_dataset_id: string | null;
   status: JobStatus;
   error: string | null;
-  created_at: number;
-  updated_at: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Place {
@@ -113,21 +55,21 @@ export interface Place {
   lat: number | null;
   lng: number | null;
   maps_url: string | null;
-  raw: string | null;
+  raw: unknown;
 }
 
 export interface DomainCheck {
   domain: string;
   dns_status: string | null;
   rdap_status: string | null;
-  is_available: number | null;
-  checked_at: number;
+  is_available: boolean | null;
+  checked_at: string;
   error: string | null;
 }
 
 export interface PlaceWithCheck extends Place {
   dns_status: string | null;
   rdap_status: string | null;
-  is_available: number | null;
-  checked_at: number | null;
+  is_available: boolean | null;
+  checked_at: string | null;
 }

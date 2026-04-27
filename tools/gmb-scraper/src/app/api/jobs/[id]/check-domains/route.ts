@@ -1,28 +1,49 @@
 import { NextResponse } from "next/server";
-import { distinctDomainsForJob, getJob, jobStats, upsertDomainCheck } from "@/lib/jobs";
+import {
+  distinctUncheckedDomains,
+  getJob,
+  jobStats,
+  upsertDomainChecksBulk,
+} from "@/lib/jobs";
 import { checkDomainsBatch } from "@/lib/domain-check";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 100;
+
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const job = getJob(id);
+  const job = await getJob(id);
   if (!job) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  const domains = distinctDomainsForJob(id);
-  if (domains.length === 0) {
-    return NextResponse.json({ checked: 0, available: 0, total_domains: 0 });
+  const url = new URL(req.url);
+  const limit = Math.max(
+    1,
+    Math.min(MAX_LIMIT, Number(url.searchParams.get("limit")) || DEFAULT_LIMIT),
+  );
+
+  const todo = await distinctUncheckedDomains(id, limit);
+  if (todo.length === 0) {
+    const stats = await jobStats(id);
+    return NextResponse.json({ checked_now: 0, done: true, ...stats });
   }
 
-  const results = await checkDomainsBatch(domains, 25);
-  for (const [domain, r] of results) {
-    upsertDomainCheck(domain, {
-      dns_status: r.dns,
-      rdap_status: r.rdap,
-      is_available: r.available ? 1 : 0,
-      error: r.error ?? null,
-    });
-  }
-  return NextResponse.json({ total_domains: domains.length, ...jobStats(id) });
+  const results = await checkDomainsBatch(todo, 25);
+  const rows = Array.from(results.entries()).map(([domain, r]) => ({
+    domain,
+    dns_status: r.dns,
+    rdap_status: r.rdap,
+    is_available: r.available,
+    error: r.error ?? null,
+  }));
+  await upsertDomainChecksBulk(rows);
+
+  const stats = await jobStats(id);
+  return NextResponse.json({
+    checked_now: rows.length,
+    done: stats.checked >= stats.with_domain,
+    ...stats,
+  });
 }

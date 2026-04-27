@@ -18,7 +18,7 @@ interface Place {
   maps_url: string | null;
   dns_status: string | null;
   rdap_status: string | null;
-  is_available: number | null;
+  is_available: boolean | null;
 }
 
 interface Job {
@@ -56,6 +56,7 @@ export function JobView({
   const [data, setData] = useState<JobResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [checkProgress, setCheckProgress] = useState<{ checked: number; total: number } | null>(null);
   const [filter, setFilter] = useState<"all" | "with_domain" | "available">("all");
 
   const fetchJob = useCallback(async () => {
@@ -87,23 +88,37 @@ export function JobView({
   const filtered = useMemo(() => {
     if (!data) return [];
     if (filter === "with_domain") return data.places.filter((p) => !!p.domain);
-    if (filter === "available") return data.places.filter((p) => p.is_available === 1);
+    if (filter === "available") return data.places.filter((p) => p.is_available === true);
     return data.places;
   }, [data, filter]);
 
   async function runDomainCheck() {
     setChecking(true);
+    setError(null);
     try {
-      const res = await fetch(`/api/jobs/${jobId}/check-domains`, { method: "POST" });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error ?? `HTTP ${res.status}`);
+      while (true) {
+        const res = await fetch(`/api/jobs/${jobId}/check-domains?limit=50`, { method: "POST" });
+        const json = (await res.json()) as {
+          checked_now: number;
+          done: boolean;
+          total: number;
+          with_domain: number;
+          checked: number;
+          available: number;
+        };
+        if (!res.ok) {
+          setError(`HTTP ${res.status}`);
+          break;
+        }
+        setCheckProgress({ checked: json.checked, total: json.with_domain });
+        if (json.done || json.checked_now === 0) break;
       }
       await fetchJob();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setChecking(false);
+      setCheckProgress(null);
     }
   }
 
@@ -146,7 +161,7 @@ export function JobView({
         <Stat label="Status" value={job.status} />
         <Stat label="Profile" value={`${stats.total} / ${job.max_results}`} />
         <Stat label="Mit Website" value={String(stats.with_domain)} />
-        <Stat label="Domains geprüft" value={String(stats.checked)} />
+        <Stat label="Domains geprüft" value={`${stats.checked} / ${stats.with_domain}`} />
         <Stat
           label="Frei verfügbar"
           value={String(stats.available)}
@@ -161,10 +176,16 @@ export function JobView({
       <div className="flex flex-wrap gap-2 items-center">
         <button
           onClick={runDomainCheck}
-          disabled={checking || busy || stats.with_domain === 0}
+          disabled={checking || busy || stats.with_domain === 0 || stats.checked >= stats.with_domain}
           className="px-3 py-1.5 bg-accent hover:bg-accent-hover rounded text-white text-sm disabled:opacity-50"
         >
-          {checking ? "Prüfe Domains…" : "Domain-Verfügbarkeit prüfen"}
+          {checking
+            ? checkProgress
+              ? `Prüfe ${checkProgress.checked}/${checkProgress.total}…`
+              : "Prüfe Domains…"
+            : stats.checked >= stats.with_domain && stats.with_domain > 0
+              ? "Alle Domains geprüft"
+              : "Domain-Verfügbarkeit prüfen"}
         </button>
         <button
           onClick={fetchJob}
@@ -201,6 +222,10 @@ export function JobView({
           </FilterChip>
         </div>
       </div>
+
+      {error && (
+        <div className="text-sm text-danger border border-danger/40 rounded p-3">{error}</div>
+      )}
 
       <div className="border border-border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
@@ -331,19 +356,15 @@ function FilterChip({
 
 function DomainBadge({ place }: { place: Place }) {
   if (!place.domain) return <span className="text-foreground/40">—</span>;
-  if (place.is_available === 1) {
+  if (place.is_available === true) {
     return (
       <span className="text-xs px-2 py-0.5 rounded bg-success/20 text-success font-medium">
         FREI ({place.rdap_status})
       </span>
     );
   }
-  if (place.is_available === 0) {
-    return (
-      <span className="text-xs text-foreground/60">
-        registriert
-      </span>
-    );
+  if (place.is_available === false) {
+    return <span className="text-xs text-foreground/60">registriert</span>;
   }
   return <span className="text-xs text-foreground/40">ungeprüft</span>;
 }

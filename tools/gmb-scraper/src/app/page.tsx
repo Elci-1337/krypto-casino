@@ -19,8 +19,8 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export default function HomePage() {
-  const jobs = listJobs();
+export default async function HomePage() {
+  const jobs = await listJobs();
   return (
     <div className="space-y-10">
       <section>

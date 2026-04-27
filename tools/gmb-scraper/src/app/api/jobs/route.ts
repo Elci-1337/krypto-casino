@@ -3,9 +3,11 @@ import { createJob, listJobs, setJobStatus, updateJob } from "@/lib/jobs";
 import { startRun } from "@/lib/apify";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 export async function GET() {
-  return NextResponse.json({ jobs: listJobs() });
+  const jobs = await listJobs();
+  return NextResponse.json({ jobs });
 }
 
 export async function POST(request: Request) {
@@ -29,7 +31,7 @@ export async function POST(request: Request) {
   const cc = (typeof country_code === "string" && country_code.trim()) || "DE";
   const lang = (typeof language === "string" && language.trim()) || "de";
 
-  const job = createJob({
+  const job = await createJob({
     keyword: keyword.trim(),
     location: location.trim(),
     country_code: cc,
@@ -45,7 +47,7 @@ export async function POST(request: Request) {
       language: job.language,
       maxResults: job.max_results,
     });
-    updateJob(job.id, {
+    await updateJob(job.id, {
       apify_run_id: run.runId,
       apify_dataset_id: run.datasetId,
       status: "running",
@@ -55,7 +57,7 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    setJobStatus(job.id, "failed", msg);
+    await setJobStatus(job.id, "failed", msg);
     return NextResponse.json({ error: "apify_start_failed", message: msg }, { status: 500 });
   }
 }

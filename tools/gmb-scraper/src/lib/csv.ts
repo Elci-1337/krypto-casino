@@ -34,7 +34,11 @@ export function placesToCsv(rows: PlaceWithCheck[]): string {
   for (const r of rows) {
     lines.push(
       HEADERS.map((h) => {
-        if (h === "is_available") return r.is_available === 1 ? "true" : r.is_available === 0 ? "false" : "";
+        if (h === "is_available") {
+          if (r.is_available === true) return "true";
+          if (r.is_available === false) return "false";
+          return "";
+        }
         return escape((r as unknown as Record<string, unknown>)[h]);
       }).join(","),
     );

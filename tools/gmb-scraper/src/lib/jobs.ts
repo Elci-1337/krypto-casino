@@ -1,132 +1,231 @@
-import { randomUUID } from "node:crypto";
-import { db, type Job, type JobStatus, type Place, type PlaceWithCheck } from "./db";
+import {
+  supa,
+  type Job,
+  type JobStatus,
+  type Place,
+  type PlaceWithCheck,
+} from "./db";
 
-export function createJob(input: {
+export async function createJob(input: {
   keyword: string;
   location: string;
   country_code: string;
   language: string;
   max_results: number;
-}): Job {
-  const id = randomUUID();
-  const now = Date.now();
-  db()
-    .prepare(
-      `INSERT INTO jobs (id, keyword, location, country_code, language, max_results, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-    )
-    .run(id, input.keyword, input.location, input.country_code, input.language, input.max_results, now, now);
-  return getJob(id)!;
+}): Promise<Job> {
+  const { data, error } = await supa()
+    .from("jobs")
+    .insert({
+      keyword: input.keyword,
+      location: input.location,
+      country_code: input.country_code,
+      language: input.language,
+      max_results: input.max_results,
+      status: "pending",
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Job;
 }
 
-export function getJob(id: string): Job | null {
-  return (db().prepare(`SELECT * FROM jobs WHERE id = ?`).get(id) as Job) ?? null;
+export async function getJob(id: string): Promise<Job | null> {
+  const { data, error } = await supa().from("jobs").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return (data as Job | null) ?? null;
 }
 
-export function listJobs(): Job[] {
-  return db().prepare(`SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100`).all() as Job[];
+export async function listJobs(): Promise<Job[]> {
+  const { data, error } = await supa()
+    .from("jobs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []) as Job[];
 }
 
-export function updateJob(
+export async function updateJob(
   id: string,
-  patch: Partial<Pick<Job, "status" | "apify_run_id" | "apify_dataset_id" | "error">>,
-) {
-  const fields = Object.keys(patch);
-  if (fields.length === 0) return;
-  const sets = fields.map((f) => `${f} = ?`).join(", ");
-  const values = fields.map((f) => (patch as Record<string, unknown>)[f]);
-  db()
-    .prepare(`UPDATE jobs SET ${sets}, updated_at = ? WHERE id = ?`)
-    .run(...values, Date.now(), id);
+  patch: Partial<
+    Pick<Job, "status" | "apify_run_id" | "apify_dataset_id" | "error">
+  >,
+): Promise<void> {
+  const { error } = await supa()
+    .from("jobs")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
 }
 
-export function setJobStatus(id: string, status: JobStatus, error?: string | null) {
-  updateJob(id, { status, error: error ?? null });
+export async function setJobStatus(
+  id: string,
+  status: JobStatus,
+  errorMsg?: string | null,
+): Promise<void> {
+  await updateJob(id, { status, error: errorMsg ?? null });
 }
 
-export function insertPlaces(jobId: string, places: Omit<Place, "id" | "job_id">[]) {
-  const stmt = db().prepare(
-    `INSERT OR IGNORE INTO places
-     (job_id, place_id, name, category, address, city, postal_code, country_code,
-      phone, email, website, domain, rating, review_count, lat, lng, maps_url, raw)
-     VALUES (@job_id, @place_id, @name, @category, @address, @city, @postal_code, @country_code,
-             @phone, @email, @website, @domain, @rating, @review_count, @lat, @lng, @maps_url, @raw)`,
+export async function insertPlaces(
+  jobId: string,
+  rows: Omit<Place, "id" | "job_id">[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const payload = rows.map((r) => ({ job_id: jobId, ...r }));
+  const { data, error } = await supa()
+    .from("places")
+    .upsert(payload, { onConflict: "job_id,place_id", ignoreDuplicates: true })
+    .select("id");
+  if (error) throw error;
+  return data?.length ?? 0;
+}
+
+export async function listPlaces(
+  jobId: string,
+  opts?: { onlyAvailable?: boolean },
+): Promise<PlaceWithCheck[]> {
+  const { data: places, error } = await supa()
+    .from("places")
+    .select("*")
+    .eq("job_id", jobId)
+    .order("id", { ascending: true });
+  if (error) throw error;
+  const rows = (places ?? []) as Place[];
+  const domains = Array.from(
+    new Set(rows.map((r) => r.domain).filter((d): d is string => !!d)),
   );
-  const tx = db().transaction((rows: Omit<Place, "id" | "job_id">[]) => {
-    let inserted = 0;
-    for (const r of rows) {
-      const res = stmt.run({ job_id: jobId, ...r });
-      inserted += res.changes;
+  const checkMap = new Map<string, { dns_status: string | null; rdap_status: string | null; is_available: boolean | null; checked_at: string | null }>();
+  if (domains.length > 0) {
+    const { data: checks, error: cErr } = await supa()
+      .from("domain_checks")
+      .select("domain, dns_status, rdap_status, is_available, checked_at")
+      .in("domain", domains);
+    if (cErr) throw cErr;
+    for (const c of checks ?? []) {
+      checkMap.set(c.domain, {
+        dns_status: c.dns_status,
+        rdap_status: c.rdap_status,
+        is_available: c.is_available,
+        checked_at: c.checked_at,
+      });
     }
-    return inserted;
+  }
+  const merged: PlaceWithCheck[] = rows.map((r) => {
+    const c = r.domain ? checkMap.get(r.domain) : undefined;
+    return {
+      ...r,
+      dns_status: c?.dns_status ?? null,
+      rdap_status: c?.rdap_status ?? null,
+      is_available: c?.is_available ?? null,
+      checked_at: c?.checked_at ?? null,
+    };
   });
-  return tx(places);
+  return opts?.onlyAvailable ? merged.filter((p) => p.is_available === true) : merged;
 }
 
-export function listPlaces(jobId: string, opts?: { onlyAvailable?: boolean }): PlaceWithCheck[] {
-  const where = opts?.onlyAvailable ? `AND dc.is_available = 1` : ``;
-  return db()
-    .prepare(
-      `SELECT p.*, dc.dns_status, dc.rdap_status, dc.is_available, dc.checked_at
-       FROM places p
-       LEFT JOIN domain_checks dc ON dc.domain = p.domain
-       WHERE p.job_id = ? ${where}
-       ORDER BY p.id ASC`,
-    )
-    .all(jobId) as PlaceWithCheck[];
+export async function distinctUncheckedDomains(jobId: string, limit: number): Promise<string[]> {
+  const { data: domainsRows, error } = await supa()
+    .from("places")
+    .select("domain")
+    .eq("job_id", jobId)
+    .not("domain", "is", null);
+  if (error) throw error;
+  const all = Array.from(
+    new Set(
+      (domainsRows ?? [])
+        .map((r) => (r as { domain: string | null }).domain)
+        .filter((d): d is string => !!d && d.length > 0),
+    ),
+  );
+  if (all.length === 0) return [];
+  const { data: existing, error: cErr } = await supa()
+    .from("domain_checks")
+    .select("domain")
+    .in("domain", all);
+  if (cErr) throw cErr;
+  const checked = new Set(((existing ?? []) as { domain: string }[]).map((c) => c.domain));
+  return all.filter((d) => !checked.has(d)).slice(0, limit);
 }
 
-export function distinctDomainsForJob(jobId: string): string[] {
-  return (
-    db()
-      .prepare(
-        `SELECT DISTINCT domain FROM places WHERE job_id = ? AND domain IS NOT NULL AND domain <> ''`,
-      )
-      .all(jobId) as { domain: string }[]
-  ).map((r) => r.domain);
-}
-
-export function upsertDomainCheck(
+export async function upsertDomainCheck(
   domain: string,
-  patch: { dns_status: string | null; rdap_status: string | null; is_available: number | null; error: string | null },
-) {
-  db()
-    .prepare(
-      `INSERT INTO domain_checks (domain, dns_status, rdap_status, is_available, checked_at, error)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(domain) DO UPDATE SET
-         dns_status = excluded.dns_status,
-         rdap_status = excluded.rdap_status,
-         is_available = excluded.is_available,
-         checked_at = excluded.checked_at,
-         error = excluded.error`,
-    )
-    .run(domain, patch.dns_status, patch.rdap_status, patch.is_available, Date.now(), patch.error);
+  patch: {
+    dns_status: string | null;
+    rdap_status: string | null;
+    is_available: boolean | null;
+    error: string | null;
+  },
+): Promise<void> {
+  const { error } = await supa()
+    .from("domain_checks")
+    .upsert(
+      {
+        domain,
+        dns_status: patch.dns_status,
+        rdap_status: patch.rdap_status,
+        is_available: patch.is_available,
+        error: patch.error,
+        checked_at: new Date().toISOString(),
+      },
+      { onConflict: "domain" },
+    );
+  if (error) throw error;
 }
 
-export function jobStats(jobId: string) {
-  const totals = db()
-    .prepare(
-      `SELECT
-         COUNT(*) AS total,
-         SUM(CASE WHEN domain IS NOT NULL AND domain <> '' THEN 1 ELSE 0 END) AS with_domain
-       FROM places WHERE job_id = ?`,
-    )
-    .get(jobId) as { total: number; with_domain: number };
-  const checks = db()
-    .prepare(
-      `SELECT
-         SUM(CASE WHEN dc.checked_at IS NOT NULL THEN 1 ELSE 0 END) AS checked,
-         SUM(CASE WHEN dc.is_available = 1 THEN 1 ELSE 0 END) AS available
-       FROM places p
-       LEFT JOIN domain_checks dc ON dc.domain = p.domain
-       WHERE p.job_id = ? AND p.domain IS NOT NULL AND p.domain <> ''`,
-    )
-    .get(jobId) as { checked: number | null; available: number | null };
+export async function upsertDomainChecksBulk(
+  rows: {
+    domain: string;
+    dns_status: string | null;
+    rdap_status: string | null;
+    is_available: boolean | null;
+    error: string | null;
+  }[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const now = new Date().toISOString();
+  const { error } = await supa()
+    .from("domain_checks")
+    .upsert(
+      rows.map((r) => ({ ...r, checked_at: now })),
+      { onConflict: "domain" },
+    );
+  if (error) throw error;
+}
+
+export async function jobStats(jobId: string) {
+  const { count: totalCount } = await supa()
+    .from("places")
+    .select("*", { count: "exact", head: true })
+    .eq("job_id", jobId);
+
+  const { data: domainsRows } = await supa()
+    .from("places")
+    .select("domain")
+    .eq("job_id", jobId)
+    .not("domain", "is", null);
+  const domains = Array.from(
+    new Set(
+      (domainsRows ?? [])
+        .map((r) => (r as { domain: string | null }).domain)
+        .filter((d): d is string => !!d && d.length > 0),
+    ),
+  );
+
+  let checked = 0;
+  let available = 0;
+  if (domains.length > 0) {
+    const { data: checks } = await supa()
+      .from("domain_checks")
+      .select("domain, is_available")
+      .in("domain", domains);
+    checked = checks?.length ?? 0;
+    available = (checks ?? []).filter((c) => c.is_available === true).length;
+  }
+
   return {
-    total: totals.total ?? 0,
-    with_domain: totals.with_domain ?? 0,
-    checked: checks.checked ?? 0,
-    available: checks.available ?? 0,
+    total: totalCount ?? 0,
+    with_domain: domains.length,
+    checked,
+    available,
   };
 }
