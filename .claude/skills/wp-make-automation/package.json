@@ -3,11 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Skill scripts: clone a Make.com scenario, wire it to a new WordPress + new Google Sheet.",
+  "description": "Skill scripts: clone a Make.com scenario, wire it to a new WordPress + an existing Google Sheet.",
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "google-auth-library": "^9.14.1"
   }
 }

@@ -1,7 +1,16 @@
 // One-shot orchestrator. Call individual scripts when you want fine control;
 // call this when you trust the happy path.
 //
-// usage: node scripts/run.mjs --site-name "Acme" --wp-url https://acme.com [--wp-key …]
+// usage:
+//   node scripts/run.mjs \
+//     --site-name "Acme" \
+//     --wp-url https://acme.com \
+//     --sheet-id 1AbC…  \
+//     [--wp-key …]
+//
+// Pre-condition: you've already created the Google Sheet manually (with the
+// same Google account that's connected to Make under Google Sheets) and copied
+// its ID from the URL.
 
 import { parseArgs, opt } from "./lib/env.mjs";
 import { fetchMakeKey } from "./lib/wp.mjs";
@@ -13,15 +22,15 @@ import {
   MAKE_TEAM_ID,
   MAKE_ZONE,
 } from "./lib/make.mjs";
-import { createSheet } from "./lib/google.mjs";
 
 const args = parseArgs(process.argv);
 const siteName = args["site-name"];
 const wpUrl = args["wp-url"];
+const sheetId = args["sheet-id"] || process.env.GOOGLE_SHEET_ID;
 let wpKey = args["wp-key"] || process.env.WP_MAKE_KEY;
 
-if (!siteName || !wpUrl) {
-  console.error("usage: run.mjs --site-name X --wp-url https://… [--wp-key …]");
+if (!siteName || !wpUrl || !sheetId) {
+  console.error("usage: run.mjs --site-name X --wp-url https://… --sheet-id <id> [--wp-key …]");
   process.exit(2);
 }
 
@@ -60,9 +69,6 @@ const conn = await createConnection({
 });
 const connectionId = conn.id || conn.connectionId;
 
-console.error("[run] creating Google Sheet");
-const sheet = await createSheet({ name: `${siteName} Keyword List` });
-
 console.error("[run] patching blueprint");
 const blueprint = await getBlueprint(newScenarioId);
 const stats = { wpModules: 0, sheetsModules: 0 };
@@ -78,7 +84,7 @@ const walk = (node) => {
     if (app === "google-sheets" || app === "googlesheets") {
       stats.sheetsModules++;
       for (const bag of [node.parameters, node.mapper]) {
-        if (bag && "spreadsheetId" in bag) bag.spreadsheetId = sheet.spreadsheetId;
+        if (bag && "spreadsheetId" in bag) bag.spreadsheetId = sheetId;
       }
     }
   }
@@ -95,8 +101,8 @@ const out = {
   scenarioUrl: `https://${MAKE_ZONE}.make.com/${MAKE_TEAM_ID}/scenarios/${newScenarioId}`,
   newScenarioId,
   connectionId,
-  sheetUrl: sheet.url,
-  spreadsheetId: sheet.spreadsheetId,
+  spreadsheetId: sheetId,
+  sheetUrl: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`,
   stats,
 };
 process.stdout.write(JSON.stringify(out, null, 2) + "\n");
