@@ -24,7 +24,8 @@ Read from `.claude/skills/wp-make-automation/.env` (gitignored). If a variable i
 | `MAKE_ZONE` | `eu1`, `eu2`, or `us1` — your Make region |
 | `MAKE_TEAM_ID` | numeric team ID where the cloned scenario should live |
 | `MAKE_TEMPLATE_SCENARIO_ID` | numeric ID of the scenario to clone |
-| `GOOGLE_SA_JSON_PATH` | absolute path to a Google Cloud service-account JSON with Sheets + Drive scopes |
+| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` | OAuth user credentials. Run `node scripts/google-auth-bootstrap.mjs` once after filling client id+secret to obtain the refresh token. |
+| `GOOGLE_SA_JSON_PATH` | (alternative, only works for Shared Drives) service-account JSON path |
 | `GOOGLE_SHEETS_TEMPLATE_ID` | (optional) template sheet to copy instead of creating blank |
 | `GOOGLE_DRIVE_PARENT_FOLDER_ID` | (optional) Drive folder to put the new sheet in |
 | `WP_USERNAME` | admin username on the target WP — used to scrape the Make-Connector key page |
