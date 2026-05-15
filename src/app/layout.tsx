@@ -1,63 +1,57 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { WalletContextProvider } from "@/components/providers/wallet-provider";
-import { SessionProvider } from "@/components/providers/session-provider";
-import { BalanceProvider } from "@/components/providers/balance-provider";
+import { site } from "@/lib/site";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Fonts as CSS variables — replace later with deine CI-Schrift (z.B. via
+// next/font/local für eine self-hosted Display-Font).
+const sans = Inter({
+  variable: "--font-sans-stack",
   subsets: ["latin"],
   display: "swap",
-  preload: true,
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const mono = JetBrains_Mono({
+  variable: "--font-mono-stack",
   subsets: ["latin"],
   display: "swap",
-  preload: false,
 });
-
-const siteUrl = "https://kartengluecksspiel.com";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: new URL(site.url),
   title: {
-    default:
-      "Kartenglücksspiel 2.0 – Sicher, Fair & Direkt mit Krypto | kartengluecksspiel.com",
-    template: "%s | kartengluecksspiel.com",
+    default: `${site.brand} — ${site.tagline}`,
+    template: `%s | ${site.brand}`,
   },
-  description:
-    "Kartenglücksspiel neu gedacht: Provably Fair, anonym und direkt mit Krypto. Poker, Blackjack und Baccarat on-chain – keine Wartezeiten, keine KYC-Hürden, sofortige Auszahlungen über Solana.",
+  description: site.description,
   keywords: [
-    "Kartenglücksspiel",
-    "Kartenspiele online",
-    "Krypto Casino",
-    "Provably Fair",
-    "Solana Casino",
-    "Online Blackjack",
-    "Online Poker",
-    "Anonym spielen",
+    "Brand Mentions",
+    "Listicles SEO",
+    "AI Overviews SEO",
+    "Backlinks kaufen",
+    "Local SEO Offpage",
+    "Offpage SEO Agentur",
+    "Generative Engine Optimization",
+    "GEO SEO",
+    "Levent Elci",
   ],
+  authors: [{ name: site.brand, url: site.url }],
+  creator: site.brand,
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     locale: "de_DE",
-    url: siteUrl,
-    siteName: "kartengluecksspiel.com",
-    title:
-      "Kartenglücksspiel 2.0 – Sicher, Fair & Direkt mit Krypto",
-    description:
-      "Provably Fair Kartenglücksspiel auf Solana. Anonym, sofort, ohne Mittelsmann.",
+    url: site.url,
+    siteName: site.brand,
+    title: `${site.brand} — ${site.tagline}`,
+    description: site.description,
   },
   twitter: {
     card: "summary_large_image",
-    title: "Kartenglücksspiel 2.0 – Sicher, Fair & Direkt mit Krypto",
-    description:
-      "Provably Fair Kartenglücksspiel auf Solana. Anonym, sofort, ohne Mittelsmann.",
+    title: `${site.brand} — ${site.tagline}`,
+    description: site.description,
   },
   robots: { index: true, follow: true },
 };
@@ -71,26 +65,24 @@ export const viewport: Viewport = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
-      lang="de"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      lang={site.language}
+      className={`${sans.variable} ${mono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground font-sans">
-        <WalletContextProvider>
-          <SessionProvider>
-            <BalanceProvider>
-              <SiteHeader />
-              <main id="main" className="flex-1 w-full">
-                {children}
-              </main>
-              <SiteFooter />
-            </BalanceProvider>
-          </SessionProvider>
-        </WalletContextProvider>
+      <body className="min-h-full flex flex-col">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:bg-[var(--accent)] focus:text-[var(--accent-foreground)] focus:px-3 focus:py-1 focus:font-mono focus:text-xs"
+        >
+          Zum Inhalt springen
+        </a>
+        <SiteHeader />
+        <main id="main" className="flex-1 w-full">
+          {children}
+        </main>
+        <SiteFooter />
       </body>
     </html>
   );
