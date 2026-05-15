@@ -9,7 +9,8 @@ export const site = {
   tagline: "Offpage SEO für das AI-Overview-Zeitalter",
   description:
     "Listicles, Brand Mentions, Backlinks und Local SEO Offpage — die vier Hebel, die deine Marke in Google AI Overviews, ChatGPT und Perplexity sichtbar machen.",
-  email: "kontakt@leventelci.de",
+  email: "info@leventelci.de",
+  calendly: "https://calendly.com/elci-levent/growth-call",
   legalName: "Elci Solutions Agency FZCO",
   twitter: "@leventelci",
   locale: "de-DE",

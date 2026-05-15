@@ -31,13 +31,15 @@ export function SiteHeader() {
           </ul>
         </nav>
 
-        <Link
-          href="/#kontakt"
+        <a
+          href={site.calendly}
+          target="_blank"
+          rel="noopener noreferrer"
           className="hidden md:inline-flex items-center gap-2 border border-[var(--accent)] bg-[var(--accent)] px-4 py-2 font-mono text-xs uppercase tracking-[0.18em] text-[var(--accent-foreground)] transition hover:bg-transparent hover:text-[var(--accent)]"
         >
-          Strategiecall
+          Growth Call
           <span aria-hidden>→</span>
-        </Link>
+        </a>
       </div>
     </header>
   );

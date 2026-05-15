@@ -53,6 +53,12 @@ const orgJsonLd = {
     "Local SEO Offpage",
     "Generative Engine Optimization",
   ],
+  sameAs: [site.calendly, "https://www.linkedin.com/in/levent-elci-solutions/"],
+  potentialAction: {
+    "@type": "ReserveAction",
+    target: site.calendly,
+    name: "Growth Call buchen",
+  },
 };
 
 const websiteJsonLd = {
@@ -111,13 +117,15 @@ export default function Home() {
             </p>
 
             <div className="flex flex-wrap gap-3">
-              <Link
-                href="#kontakt"
+              <a
+                href={site.calendly}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 bg-[var(--accent)] px-5 py-3 font-mono text-xs uppercase tracking-[0.22em] text-[var(--accent-foreground)] transition hover:opacity-90"
               >
-                Strategiecall buchen
+                Growth Call buchen
                 <span aria-hidden>→</span>
-              </Link>
+              </a>
               <Link
                 href="#leistungen"
                 className="inline-flex items-center gap-2 border border-[var(--border-strong)] px-5 py-3 font-mono text-xs uppercase tracking-[0.22em] text-[var(--foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
@@ -370,8 +378,17 @@ export default function Home() {
 
           <div className="flex flex-col gap-3 border border-[var(--border-strong)] bg-[var(--background)] p-6">
             <a
-              href={`mailto:${site.email}`}
+              href={site.calendly}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center justify-between gap-2 bg-[var(--accent)] px-5 py-4 font-mono text-xs uppercase tracking-[0.22em] text-[var(--accent-foreground)] transition hover:opacity-90"
+            >
+              <span>Growth Call buchen</span>
+              <span aria-hidden>→</span>
+            </a>
+            <a
+              href={`mailto:${site.email}`}
+              className="inline-flex items-center justify-between gap-2 border border-[var(--border-strong)] px-5 py-4 font-mono text-xs uppercase tracking-[0.22em] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
             >
               <span>{site.email}</span>
               <span aria-hidden>→</span>
@@ -386,7 +403,7 @@ export default function Home() {
               <span aria-hidden>→</span>
             </a>
             <p className="mt-2 font-mono text-[0.7rem] uppercase tracking-[0.2em] text-[var(--foreground-dim)]">
-              Antwort i.d.R. innerhalb 24h · DE/EN
+              Calendly · 30 min · DE/EN
             </p>
           </div>
         </div>

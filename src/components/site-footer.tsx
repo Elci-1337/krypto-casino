@@ -35,6 +35,16 @@ export function SiteFooter() {
           </h3>
           <ul className="mt-4 space-y-2 text-sm">
             <li>
+              <a
+                className="hover:text-[var(--accent)]"
+                href={site.calendly}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Growth Call (Calendly)
+              </a>
+            </li>
+            <li>
               <a className="hover:text-[var(--accent)]" href={`mailto:${site.email}`}>
                 {site.email}
               </a>
