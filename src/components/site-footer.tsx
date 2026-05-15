@@ -1,66 +1,55 @@
+import Link from "next/link";
+import { site } from "@/lib/site";
+
 export function SiteFooter() {
   return (
-    <footer className="border-t border-[var(--border)] bg-background">
-      {/* --- Verantwortungsvolles Spiel --------------------------------- */}
-      <section
-        aria-labelledby="responsible-gambling-heading"
-        className="border-b border-[var(--border)]"
-      >
-        <div className="mx-auto flex max-w-6xl flex-col gap-5 px-6 py-8 sm:flex-row sm:items-center">
-          <span
-            role="img"
-            aria-label="Nur für Personen ab 18 Jahren"
-            className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-[var(--accent)] bg-black font-mono text-lg font-bold text-[var(--accent)] shadow-[0_0_24px_-4px_rgba(255,69,0,0.6)]"
-          >
-            18+
-          </span>
-
-          <div className="flex-1">
-            <h2
-              id="responsible-gambling-heading"
-              className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-[var(--accent)]"
-            >
-              Verantwortungsvolles Spiel
-            </h2>
-            <p className="mt-2 text-sm leading-relaxed text-foreground/75">
-              Kartenglücksspiel kann süchtig machen. Spiele nur mit Geld, dessen
-              Verlust du dir leisten kannst, und setze dir feste Einsatz- und
-              Zeitlimits. Angebote richten sich ausschließlich an volljährige
-              Personen (18+) in Regionen, in denen Online-Glücksspiel erlaubt
-              ist.
-            </p>
-            <p className="mt-2 text-xs text-foreground/55">
-              Hilfe bei Spielsucht:{" "}
-              <a
-                href="https://www.bzga.de"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline decoration-[var(--accent)] decoration-2 underline-offset-2 hover:text-[var(--accent)]"
-              >
-                bzga.de
-              </a>{" "}
-              &middot;{" "}
-              <a
-                href="tel:08003722700"
-                className="underline decoration-[var(--accent)] decoration-2 underline-offset-2 hover:text-[var(--accent)]"
-              >
-                0800 1 372 700
-              </a>{" "}
-              (kostenlose Beratung, Deutschland)
-            </p>
+    <footer className="mt-24 border-t border-[var(--border)] bg-[var(--surface)]">
+      <div className="mx-auto grid max-w-6xl gap-10 px-6 py-12 md:grid-cols-4">
+        <div className="md:col-span-2">
+          <div className="flex items-center gap-2 font-mono text-sm uppercase tracking-[0.2em]">
+            <span aria-hidden className="inline-block h-2 w-2 bg-[var(--accent)]" />
+            <span>{site.brand}</span>
           </div>
+          <p className="mt-4 max-w-md text-sm text-[var(--foreground-muted)]">
+            {site.tagline}. Brand Mentions, Listicles, Backlinks, Local SEO —
+            für Marken, die in Google AI Overviews und LLM-Antworten zitiert
+            werden wollen.
+          </p>
         </div>
-      </section>
 
-      {/* --- Copyright ---------------------------------------------------- */}
-      <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-2 px-6 py-6 text-xs text-foreground/50 sm:flex-row sm:items-center">
-        <p className="font-mono uppercase tracking-wider">
-          &copy; {new Date().getFullYear()} kartengluecksspiel.com
-        </p>
-        <p className="font-mono uppercase tracking-wider">
-          Powered by <span className="text-[var(--accent)]">Solana</span> &middot;{" "}
-          Provably Fair
-        </p>
+        <div>
+          <h3 className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--foreground-muted)]">
+            Leistungen
+          </h3>
+          <ul className="mt-4 space-y-2 text-sm">
+            <li><Link className="hover:text-[var(--accent)]" href="/#listicles">Listicles</Link></li>
+            <li><Link className="hover:text-[var(--accent)]" href="/#brand-mentions">Brand Mentions</Link></li>
+            <li><Link className="hover:text-[var(--accent)]" href="/#backlinks">Backlinks</Link></li>
+            <li><Link className="hover:text-[var(--accent)]" href="/#local-seo">Local SEO Offpage</Link></li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--foreground-muted)]">
+            Kontakt
+          </h3>
+          <ul className="mt-4 space-y-2 text-sm">
+            <li>
+              <a className="hover:text-[var(--accent)]" href={`mailto:${site.email}`}>
+                {site.email}
+              </a>
+            </li>
+            <li><Link className="hover:text-[var(--accent)]" href="/impressum">Impressum</Link></li>
+            <li><Link className="hover:text-[var(--accent)]" href="/datenschutz">Datenschutz</Link></li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--border)]">
+        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-2 px-6 py-5 font-mono text-xs uppercase tracking-[0.18em] text-[var(--foreground-dim)] md:flex-row md:items-center">
+          <span>© {new Date().getFullYear()} {site.legalName}</span>
+          <span>Made for AI Overviews · Built on Next.js</span>
+        </div>
       </div>
     </footer>
   );

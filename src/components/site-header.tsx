@@ -1,59 +1,43 @@
 import Link from "next/link";
-import { WalletButton } from "@/components/wallet-button";
-import { WalletBalance } from "@/components/wallet-balance";
-import { DepositDialog } from "@/components/deposit-dialog";
-import { WithdrawDialog } from "@/components/withdraw-dialog";
-import { AuthButton } from "@/components/auth-button";
+import { nav, site } from "@/lib/site";
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-[var(--border)] bg-background/90 backdrop-blur">
+    <header className="sticky top-0 z-40 w-full border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--background)_82%,transparent)] backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Link
           href="/"
-          className="flex items-center gap-2"
-          aria-label="kartengluecksspiel.com Startseite"
+          className="group flex items-center gap-2 font-mono text-sm uppercase tracking-[0.2em]"
         >
           <span
-            aria-hidden="true"
-            className="inline-block h-3 w-3 rounded-sm bg-[var(--accent)]"
+            aria-hidden
+            className="inline-block h-2 w-2 bg-[var(--accent)]"
           />
-          <span className="font-mono text-lg font-bold tracking-tight">
-            KARTEN<span className="text-[var(--accent)]">.</span>GLÜCK
-          </span>
+          <span>{site.brand}</span>
         </Link>
 
-        <nav
-          aria-label="Primäre Navigation"
-          className="hidden items-center gap-6 text-sm font-medium sm:flex"
-        >
-          <a
-            href="#spiele"
-            className="text-foreground/70 transition-colors hover:text-[var(--accent)]"
-          >
-            Spiele
-          </a>
-          <a
-            href="#fairness"
-            className="text-foreground/70 transition-colors hover:text-[var(--accent)]"
-          >
-            Fairness
-          </a>
-          <a
-            href="#faq"
-            className="text-foreground/70 transition-colors hover:text-[var(--accent)]"
-          >
-            FAQ
-          </a>
+        <nav className="hidden md:block" aria-label="Hauptnavigation">
+          <ul className="flex items-center gap-7 font-mono text-xs uppercase tracking-[0.18em] text-[var(--foreground-muted)]">
+            {nav.map((item) => (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className="transition-colors hover:text-[var(--foreground)]"
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </nav>
 
-        <div className="flex items-center gap-2">
-          <WalletBalance />
-          <DepositDialog />
-          <WithdrawDialog />
-          <AuthButton />
-          <WalletButton />
-        </div>
+        <Link
+          href="/#kontakt"
+          className="hidden md:inline-flex items-center gap-2 border border-[var(--accent)] bg-[var(--accent)] px-4 py-2 font-mono text-xs uppercase tracking-[0.18em] text-[var(--accent-foreground)] transition hover:bg-transparent hover:text-[var(--accent)]"
+        >
+          Strategiecall
+          <span aria-hidden>→</span>
+        </Link>
       </div>
     </header>
   );

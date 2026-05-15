@@ -1,126 +1,94 @@
 @import "tailwindcss";
 
+/* ============================================================================
+ * CI / Design tokens — REPLACE_ME placeholders
+ * ----------------------------------------------------------------------------
+ * Diese Werte sind bewusst neutral gehalten. Sobald du mir deine CI gibst,
+ * tauschst du die folgenden Tokens hier 1:1 aus. Nichts anderes muss angefasst
+ * werden — alle Komponenten lesen aus diesen Variablen.
+ * ========================================================================== */
+
 :root {
-  --background: #000000;
-  --foreground: #ffffff;
-  --accent: #ff4500;
-  --accent-hover: #ff5a1f;
-  --muted: #0a0a0a;
-  --border: #1a1a1a;
+  /* Background / Surface */
+  --background: #0a0a0a;
+  --surface: #111111;
+  --surface-2: #161616;
+  --border: #232323;
+  --border-strong: #2e2e2e;
+
+  /* Text */
+  --foreground: #f5f5f5;
+  --foreground-muted: #a1a1a1;
+  --foreground-dim: #6b6b6b;
+
+  /* Accent — REPLACE_ME mit deiner Brand-Farbe */
+  --accent: #c8ff00;
+  --accent-foreground: #0a0a0a;
+  --accent-soft: rgba(200, 255, 0, 0.12);
+
+  /* Status */
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+
+  /* Type scale anchors */
+  --font-sans: var(--font-sans-stack, ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+  --font-mono: var(--font-mono-stack, ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+
+  /* Radii — kantig (SEO/Tech-Ästhetik) */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
-  --color-muted: var(--muted);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-border: var(--border);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-html,
-body {
-  background: var(--background);
-  color: var(--foreground);
-}
-
-::selection {
-  background: var(--accent);
-  color: #000000;
+  --color-border-strong: var(--border-strong);
+  --color-muted: var(--foreground-muted);
+  --color-dim: var(--foreground-dim);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 html {
   scroll-behavior: smooth;
 }
 
-@keyframes card-float {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-6deg);
-  }
-  50% {
-    transform: translateY(-12px) rotate(-4deg);
-  }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-@keyframes card-glow {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.85;
-    transform: scale(1.08);
-  }
+::selection {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
-@keyframes card-shine {
-  0% {
-    transform: translateX(-120%) skewX(-20deg);
-  }
-  60%,
-  100% {
-    transform: translateX(220%) skewX(-20deg);
-  }
+/* Subtle grid backdrop — used by hero/section dividers */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse at center, black 40%, transparent 75%);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-  .motion-card,
-  .motion-glow,
-  .motion-shine {
-    animation: none !important;
-  }
-}
-
-/* ---------------------------------------------------------------------------
- * Solana wallet-adapter UI overrides — map to our brand palette.
- * ------------------------------------------------------------------------ */
-.wallet-button-slot .wallet-adapter-button-trigger,
-.wallet-button-slot .wallet-adapter-button {
-  background: var(--accent) !important;
-  color: #000 !important;
-  height: 36px;
-  padding: 0 1rem;
-  border-radius: 0;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 0.8125rem;
-  line-height: 1;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border: 1px solid var(--accent);
-  transition: background-color 120ms ease;
-}
-
-.wallet-button-slot .wallet-adapter-button-trigger:not([disabled]):hover,
-.wallet-button-slot .wallet-adapter-button:not([disabled]):hover {
-  background: var(--accent-hover) !important;
-}
-
-.wallet-adapter-modal-wrapper {
-  background: #0a0a0a !important;
-  border: 1px solid var(--border);
-  border-radius: 0 !important;
-}
-
-.wallet-adapter-modal-title {
-  color: var(--foreground) !important;
-}
-
-.wallet-adapter-modal-list .wallet-adapter-button {
-  background: transparent !important;
-  color: var(--foreground) !important;
-  border-radius: 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.wallet-adapter-modal-list .wallet-adapter-button:hover {
-  background: var(--muted) !important;
-  color: var(--accent) !important;
+/* Focus ring */
+:where(a, button, input, textarea, select):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
